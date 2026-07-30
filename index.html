@@ -784,6 +784,9 @@ function renderPagos(){
   const monthKey = `${now.getFullYear()}-${mm}`;
   const totalMes = state.pagos.filter(p=>p.fecha.startsWith(monthKey)).reduce((s,p)=>s+Number(p.monto||0),0);
 
+  const pendientes = deudores();
+  const totalDeuda = pendientes.reduce((s,d)=> s + d.saldo, 0);
+
   let html = `
     <div class="stat-card">
       <div class="stat-label">Cobrado este mes</div>
@@ -791,8 +794,16 @@ function renderPagos(){
       <div class="stat-foot">${state.pagos.filter(p=>p.fecha.startsWith(monthKey)).length} pago(s) registrados</div>
     </div>
   `;
+  if(totalDeuda>0){
+    html += `
+    <div class="stat-card" style="background:var(--clay);">
+      <div class="stat-label">Total adeudado</div>
+      <div class="stat-value" style="color:#F3E8D2;">${money(totalDeuda)}</div>
+      <div class="stat-foot">${pendientes.length} cliente${pendientes.length!==1?'s':''} con saldo pendiente</div>
+    </div>
+    `;
+  }
 
-  const pendientes = deudores();
   if(pendientes.length>0){
     html += `<div class="section-title">Deudas pendientes</div>`;
     pendientes.forEach(d=>{

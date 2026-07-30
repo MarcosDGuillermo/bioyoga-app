@@ -525,7 +525,7 @@ const ICON = {
 
 /* ============ Estado ============ */
 let state = {
-  config: { studioName: 'Bioyoga Consciente', instructora: 'Prof. Vir Segura', precioIndividual:'', precioGrupal:'' },
+  config: { studioName: 'Bioyoga Consciente', instructora: 'Prof. Vir Segura', precioBioyoga1x:'', precioBioyoga2x:'', precioReflexologia:'' },
   clientes: [],
   turnos: [],
   pagos: []
@@ -738,7 +738,7 @@ function renderAgenda(){
       <div class="turno-info">
         <div class="turno-time mono">${t.hora}</div>
         <div class="turno-title">${turnoLabel(t)}</div>
-        <div class="turno-meta">${t.tipo} · ${t.modalidad==='grupal'?'Grupal':'Individual'}</div>
+        <div class="turno-meta">${t.tipo}${t.tipo==='Bioyoga' && t.frecuencia==='2x' ? ' 2x' : (t.tipo==='Bioyoga' ? ' 1x' : '')} · ${t.modalidad==='grupal'?'Grupal':'Individual'}</div>
       </div>
       <div class="status-pill status-${t.estado}">${estadoLabel(t.estado)}</div>
     </div>`;
@@ -964,16 +964,21 @@ function openClienteDetail(c){
 }
 
 /* ============ Formulario: Turno ============ */
-function precioDefault(modalidad){
-  const v = modalidad==='individual' ? state.config.precioIndividual : state.config.precioGrupal;
+function precioDefault(tipo, frecuencia){
+  let v;
+  if(tipo === 'Reflexologia'){
+    v = state.config.precioReflexologia;
+  } else {
+    v = frecuencia==='2x' ? state.config.precioBioyoga2x : state.config.precioBioyoga1x;
+  }
   return (v!==undefined && v!==null && v!=='') ? v : '';
 }
 
 function openTurnoForm(existing, prefill){
   const t = existing || {
     id:null, fecha: (prefill&&prefill.fecha)||todayISO(), hora:'09:00',
-    tipo:'Bioyoga', modalidad:'individual', clienteIds:[], nombreGrupo:'', notas:'', estado:'pendiente',
-    precio: precioDefault('individual')
+    tipo:'Bioyoga', frecuencia:'1x', modalidad:'individual', clienteIds:[], nombreGrupo:'', notas:'', estado:'pendiente',
+    precio: precioDefault('Bioyoga','1x')
   };
   let precioTocado = !!existing;
   if(state.clientes.length===0){
@@ -1006,6 +1011,17 @@ function openTurnoForm(existing, prefill){
     `;
   }
 
+  function freqSection(){
+    if(t.tipo !== 'Bioyoga') return '';
+    return `
+      <div class="field"><label>Frecuencia semanal</label>
+        <div class="chipgroup">
+          <button type="button" class="chip chip-neutral ${t.frecuencia==='1x'?'on':''}" data-freq="1x">1 vez x semana</button>
+          <button type="button" class="chip chip-neutral ${t.frecuencia==='2x'?'on':''}" data-freq="2x">2 veces x semana</button>
+        </div>
+      </div>`;
+  }
+
   function bodyHTML(){
     return `
       <div class="field"><label>Tipo de clase</label>
@@ -1014,6 +1030,7 @@ function openTurnoForm(existing, prefill){
           <button type="button" class="chip chip-clay ${t.tipo==='Reflexologia'?'on':''}" data-tipo="Reflexologia">Reflexología</button>
         </div>
       </div>
+      <div id="freqWrap">${freqSection()}</div>
       <div class="field"><label>Modalidad</label>
         <div class="chipgroup">
           <button type="button" class="chip chip-neutral ${t.modalidad==='individual'?'on':''}" data-mod="individual">Individual</button>
@@ -1038,19 +1055,37 @@ function openTurnoForm(existing, prefill){
     <button class="btn btn-primary" id="fSaveT">${existing?'Guardar cambios':'Agendar clase'}</button>
     <button class="btn btn-ghost" id="fCancelT">Cancelar</button>
   `, ()=>{
+    function wireFreqChips(){
+      document.querySelectorAll('[data-freq]').forEach(b=>{
+        b.onclick = ()=>{
+          t.frecuencia = b.dataset.freq;
+          document.querySelectorAll('[data-freq]').forEach(x=>x.classList.toggle('on', x===b));
+          if(!precioTocado){
+            const fp = document.getElementById('fPrecio');
+            if(fp) fp.value = precioDefault(t.tipo, t.frecuencia);
+          }
+        };
+      });
+    }
     function wireChips(){
       document.querySelectorAll('[data-tipo]').forEach(b=>{
-        b.onclick = ()=>{ t.tipo=b.dataset.tipo; document.querySelectorAll('[data-tipo]').forEach(x=>x.classList.toggle('on', x===b)); };
+        b.onclick = ()=>{
+          t.tipo=b.dataset.tipo;
+          document.querySelectorAll('[data-tipo]').forEach(x=>x.classList.toggle('on', x===b));
+          document.getElementById('freqWrap').innerHTML = freqSection();
+          wireFreqChips();
+          if(!precioTocado){
+            const fp = document.getElementById('fPrecio');
+            if(fp) fp.value = precioDefault(t.tipo, t.frecuencia);
+          }
+        };
       });
+      wireFreqChips();
       document.querySelectorAll('[data-mod]').forEach(b=>{
         b.onclick = ()=>{
           t.modalidad=b.dataset.mod;
           document.querySelectorAll('[data-mod]').forEach(x=>x.classList.toggle('on', x===b));
           document.getElementById('modoWrap').innerHTML = modoSection();
-          if(!precioTocado){
-            const fp = document.getElementById('fPrecio');
-            if(fp) fp.value = precioDefault(t.modalidad);
-          }
         };
       });
       const fp = document.getElementById('fPrecio');
@@ -1074,7 +1109,8 @@ function openTurnoForm(existing, prefill){
       }
       const precio = Number(document.getElementById('fPrecio').value) || 0;
       const notas = document.getElementById('fNotasT').value.trim();
-      const payload = { fecha, hora, tipo:t.tipo, modalidad:t.modalidad, clienteIds, nombreGrupo, precio, notas };
+      const frecuencia = t.tipo==='Bioyoga' ? t.frecuencia : null;
+      const payload = { fecha, hora, tipo:t.tipo, frecuencia, modalidad:t.modalidad, clienteIds, nombreGrupo, precio, notas };
       if(existing){
         Object.assign(existing, payload);
       } else {
@@ -1099,7 +1135,7 @@ function openTurnoDetail(t){
       <div class="detail-label">Fecha y hora</div>
       <div class="detail-value">${fmtDateHeader(t.fecha)} · ${fmtDateShort(t.fecha)} a las ${t.hora}</div>
       <div class="detail-label" style="margin-top:10px;">Tipo</div>
-      <div class="detail-value">${t.tipo==='Bioyoga'?'Bioyoga':'Reflexología'} · ${t.modalidad==='grupal'?'Grupal':'Individual'}</div>
+      <div class="detail-value">${t.tipo==='Bioyoga'?'Bioyoga':'Reflexología'}${t.tipo==='Bioyoga' && t.frecuencia ? (t.frecuencia==='2x' ? ' · 2 veces x semana' : ' · 1 vez x semana') : ''} · ${t.modalidad==='grupal'?'Grupal':'Individual'}</div>
       <div class="detail-label" style="margin-top:10px;">Precio por persona</div>
       <div class="detail-value mono">${money(t.precio||0)}</div>
       <div class="detail-label" style="margin-top:10px;">Participante${t.clienteIds.length!==1?'s':''}</div>
@@ -1253,10 +1289,9 @@ function openSettings(){
     <div class="sheet-title">Ajustes</div>
     <div class="field"><label>Nombre de tu espacio</label><input type="text" id="sNombre" value="${state.config.studioName||''}" placeholder="Ej: Bioyoga Consciente"></div>
     <div class="field"><label>Instructora</label><input type="text" id="sInstructora" value="${state.config.instructora||''}" placeholder="Ej: Prof. Vir Segura"></div>
-    <div class="row2">
-      <div class="field"><label>Precio individual</label><input type="number" inputmode="decimal" id="sPrecioInd" value="${state.config.precioIndividual||''}" placeholder="0"></div>
-      <div class="field"><label>Precio grupal (x persona)</label><input type="number" inputmode="decimal" id="sPrecioGru" value="${state.config.precioGrupal||''}" placeholder="0"></div>
-    </div>
+    <div class="field"><label>Bioyoga · 1 vez x semana</label><input type="number" inputmode="decimal" id="sPrecioBio1" value="${state.config.precioBioyoga1x||''}" placeholder="0"></div>
+    <div class="field"><label>Bioyoga · 2 veces x semana</label><input type="number" inputmode="decimal" id="sPrecioBio2" value="${state.config.precioBioyoga2x||''}" placeholder="0"></div>
+    <div class="field"><label>Reflexología</label><input type="number" inputmode="decimal" id="sPrecioReflex" value="${state.config.precioReflexologia||''}" placeholder="0"></div>
     <div class="hint" style="margin-top:-8px;">Estos precios se usan como valor sugerido al agendar una clase nueva. Siempre se pueden cambiar clase por clase.</div>
     <button class="btn btn-primary" id="sSave">Guardar</button>
     <div class="hint" style="margin-top:16px;">Los datos se guardan en tu Google Sheet y se ven iguales desde cualquier dispositivo conectado a esta misma app.</div>
@@ -1267,8 +1302,9 @@ function openSettings(){
     document.getElementById('sSave').onclick = ()=>{
       state.config.studioName = document.getElementById('sNombre').value.trim() || 'Mi espacio';
       state.config.instructora = document.getElementById('sInstructora').value.trim();
-      state.config.precioIndividual = document.getElementById('sPrecioInd').value;
-      state.config.precioGrupal = document.getElementById('sPrecioGru').value;
+      state.config.precioBioyoga1x = document.getElementById('sPrecioBio1').value;
+      state.config.precioBioyoga2x = document.getElementById('sPrecioBio2').value;
+      state.config.precioReflexologia = document.getElementById('sPrecioReflex').value;
       persist('config');
       closeSheet();
       render();
@@ -1297,3 +1333,4 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
+

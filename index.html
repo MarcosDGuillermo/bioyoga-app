@@ -130,6 +130,51 @@
   }
   .seg.active{background:var(--mustard); color:var(--forest);}
 
+  .btn-link-add{
+    width:100%;
+    background:none;
+    border:1.5px dashed var(--line);
+    color:var(--forest);
+    font-weight:700;
+    font-size:0.86rem;
+    padding:10px;
+    border-radius:12px;
+    margin-top:8px;
+    text-align:center;
+  }
+  .btn-link-add:active{background:var(--moss-soft);}
+
+  /* ---------- Calendario mensual ---------- */
+  .cal-nav{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:12px;
+  }
+  .cal-nav-btn{
+    background:var(--paper); border:1px solid var(--line); border-radius:10px;
+    width:34px; height:34px; display:flex; align-items:center; justify-content:center; color:var(--forest);
+  }
+  .cal-nav-btn svg{width:17px; height:17px;}
+  .cal-title{font-family:'Cormorant Garamond', serif; font-weight:600; font-size:1.25rem; color:var(--forest); text-transform:capitalize;}
+  .cal-today-btn{font-size:0.76rem; font-weight:700; color:var(--moss); background:var(--moss-soft); border:none; border-radius:999px; padding:5px 11px;}
+  .cal-weekdays{display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:4px;}
+  .cal-weekday{text-align:center; font-size:0.68rem; font-weight:700; color:var(--ink-soft); text-transform:uppercase;}
+  .cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:16px;}
+  .cal-cell{
+    aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    border-radius:11px; background:var(--paper); border:1px solid var(--line);
+    font-size:0.85rem; font-weight:600; color:var(--ink); gap:2px; position:relative;
+  }
+  .cal-cell.blank{background:none; border:none;}
+  .cal-cell.today{border-color:var(--moss); border-width:1.5px; color:var(--forest);}
+  .cal-cell.selected{background:var(--forest); border-color:var(--forest); color:var(--paper);}
+  .cal-cell .cal-dot{width:5px; height:5px; border-radius:50%; background:var(--moss);}
+  .cal-cell.selected .cal-dot{background:var(--mustard);}
+  .cal-day-list-title{
+    font-size:0.78rem; font-weight:700; color:var(--forest); text-transform:uppercase;
+    letter-spacing:0.05em; margin:4px 2px 8px; display:flex; justify-content:space-between; align-items:center;
+  }
+  .cal-clear-btn{font-size:0.74rem; font-weight:700; color:var(--ink-soft); text-transform:none; letter-spacing:0;}
+
   /* ---------- Main ---------- */
   .main{
     flex:1;
@@ -483,6 +528,7 @@
     <div class="tabbar-inline" id="agendaFilter" style="display:none;">
       <button class="seg active" data-filter="proximas">Próximas</button>
       <button class="seg" data-filter="todas">Todas</button>
+      <button class="seg" data-filter="mes">Mes</button>
     </div>
   </header>
 
@@ -530,7 +576,7 @@ let state = {
   turnos: [],
   pagos: []
 };
-let ui = { tab:'agenda', agendaFilter:'proximas', clienteSearch:'', pagoSearch:'' };
+let ui = { tab:'agenda', agendaFilter:'proximas', clienteSearch:'', pagoSearch:'', calMonth:'', calSelectedDay:null };
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayISO = () => {
@@ -551,6 +597,44 @@ function fmtDateHeader(iso){
 function fmtDateShort(iso){
   const d = new Date(iso+'T00:00:00');
   return d.toLocaleDateString('es-AR',{day:'2-digit', month:'2-digit', year:'2-digit'});
+}
+
+/* ============ Recurrencia semanal (día de la semana + repetir en el mes) ============ */
+const DIAS_SEMANA = [
+  {value:1, label:'Lun'}, {value:2, label:'Mar'}, {value:3, label:'Mié'},
+  {value:4, label:'Jue'}, {value:5, label:'Vie'}, {value:6, label:'Sáb'}, {value:0, label:'Dom'}
+];
+function isoFromDate(d){
+  return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,10);
+}
+function endOfMonthISO(iso){
+  const d = new Date(iso+'T00:00:00');
+  const end = new Date(d.getFullYear(), d.getMonth()+1, 0);
+  return isoFromDate(end);
+}
+function nextDateForWeekday(fechaInicioISO, weekday){
+  const d = new Date(fechaInicioISO+'T00:00:00');
+  const diff = (weekday - d.getDay() + 7) % 7;
+  d.setDate(d.getDate()+diff);
+  return isoFromDate(d);
+}
+function generarFechasRecurrentes(fechaInicioISO, dias, repetirMes){
+  const fechas = [];
+  const finMes = endOfMonthISO(fechaInicioISO);
+  dias.forEach(w=>{
+    let cur = nextDateForWeekday(fechaInicioISO, w);
+    if(!repetirMes){
+      fechas.push(cur);
+    } else {
+      while(cur <= finMes){
+        fechas.push(cur);
+        const d = new Date(cur+'T00:00:00');
+        d.setDate(d.getDate()+7);
+        cur = isoFromDate(d);
+      }
+    }
+  });
+  return [...new Set(fechas)].sort();
 }
 
 /* ============ Storage (Google Sheets vía Apps Script) ============ */
@@ -664,7 +748,8 @@ function render(){
   document.getElementById('agendaFilter').style.display = ui.tab==='agenda' ? 'flex' : 'none';
 
   const main = document.getElementById('mainView');
-  if(ui.tab==='agenda') main.innerHTML = renderAgenda();
+  if(ui.tab==='agenda' && ui.agendaFilter==='mes') main.innerHTML = renderAgendaCalendario();
+  else if(ui.tab==='agenda') main.innerHTML = renderAgenda();
   else if(ui.tab==='clientes') main.innerHTML = renderClientes();
   else main.innerHTML = renderPagos();
 
@@ -732,7 +817,14 @@ function renderAgenda(){
       html += `<div class="day-header">${fmtDateHeader(t.fecha)} · ${fmtDateShort(t.fecha)}</div>`;
       lastDate = t.fecha;
     }
-    html += `
+    html += turnoCardHTML(t);
+  });
+  return html;
+}
+
+/* ---------- AGENDA: vista Mes (calendario) ---------- */
+function turnoCardHTML(t){
+  return `
     <div class="card" data-open="turno" data-id="${t.id}">
       <div class="dot ${t.tipo==='Bioyoga'?'dot-moss':'dot-clay'}"></div>
       <div class="turno-info">
@@ -742,8 +834,81 @@ function renderAgenda(){
       </div>
       <div class="status-pill status-${t.estado}">${estadoLabel(t.estado)}</div>
     </div>`;
+}
+function getCalMonth(){
+  return ui.calMonth || todayISO().slice(0,7);
+}
+function renderAgendaCalendario(){
+  const [year, month] = getCalMonth().split('-').map(Number); // month: 1-12
+  const today = todayISO();
+  const firstOfMonth = new Date(year, month-1, 1);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const leadBlanks = (firstOfMonth.getDay() + 6) % 7; // lunes=0
+
+  const turnosPorFecha = {};
+  state.turnos.forEach(t=>{
+    (turnosPorFecha[t.fecha] = turnosPorFecha[t.fecha] || []).push(t);
   });
-  return html;
+
+  const nombreMes = firstOfMonth.toLocaleDateString('es-AR',{month:'long', year:'numeric'});
+
+  let cells = '';
+  for(let i=0;i<leadBlanks;i++) cells += `<div class="cal-cell blank"></div>`;
+  for(let day=1; day<=daysInMonth; day++){
+    const iso = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const hasTurno = !!turnosPorFecha[iso];
+    const isToday = iso===today;
+    const isSel = iso===ui.calSelectedDay;
+    cells += `<div class="cal-cell ${isToday?'today':''} ${isSel?'selected':''}" data-caldate="${iso}">
+      <span>${day}</span>${hasTurno?'<span class="cal-dot"></span>':''}
+    </div>`;
+  }
+  const totalCells = leadBlanks + daysInMonth;
+  const trailBlanks = (7 - (totalCells % 7)) % 7;
+  for(let i=0;i<trailBlanks;i++) cells += `<div class="cal-cell blank"></div>`;
+
+  let listHTML = '';
+  if(ui.calSelectedDay){
+    const dia = turnosPorFecha[ui.calSelectedDay] || [];
+    listHTML += `<div class="cal-day-list-title"><span>${fmtDateHeader(ui.calSelectedDay)} · ${fmtDateShort(ui.calSelectedDay)}</span><button class="cal-clear-btn" data-clearcal="1">Ver todo el mes</button></div>`;
+    if(dia.length===0){
+      listHTML += `<p style="text-align:center; color:var(--ink-soft); font-size:0.88rem; margin-top:10px;">No hay clases este día.</p>`;
+    } else {
+      dia.sort((a,b)=> a.hora.localeCompare(b.hora)).forEach(t=>{
+        listHTML += turnoCardHTML(t);
+      });
+    }
+  } else {
+    const mesTurnos = state.turnos
+      .filter(t=> t.fecha.slice(0,7) === getCalMonth())
+      .sort((a,b)=> (a.fecha+a.hora).localeCompare(b.fecha+b.hora));
+    if(mesTurnos.length===0){
+      listHTML += `<p style="text-align:center; color:var(--ink-soft); font-size:0.88rem; margin-top:10px;">No hay clases cargadas este mes.</p>`;
+    } else {
+      let lastDate = null;
+      mesTurnos.forEach(t=>{
+        if(t.fecha !== lastDate){
+          listHTML += `<div class="day-header">${fmtDateHeader(t.fecha)} · ${fmtDateShort(t.fecha)}</div>`;
+          lastDate = t.fecha;
+        }
+        listHTML += turnoCardHTML(t);
+      });
+    }
+  }
+
+  return `
+    <div class="cal-nav">
+      <button class="cal-nav-btn" data-navmonth="-1">${ICON.back}</button>
+      <div style="text-align:center;">
+        <div class="cal-title">${nombreMes}</div>
+      </div>
+      <button class="cal-nav-btn" data-navmonth="1">${ICON.chevron}</button>
+    </div>
+    <div style="text-align:center; margin-bottom:12px;"><button class="cal-today-btn" id="calToday">Ir a hoy</button></div>
+    <div class="cal-weekdays">${DIAS_SEMANA.map(d=>`<div class="cal-weekday">${d.label}</div>`).join('')}</div>
+    <div class="cal-grid">${cells}</div>
+    ${listHTML}
+  `;
 }
 
 /* ---------- CLIENTES ---------- */
@@ -866,6 +1031,33 @@ function attachListListeners(){
   if(cs) cs.oninput = (e)=>{ ui.clienteSearch = e.target.value; render(); cs.focus(); cs.setSelectionRange(cs.value.length,cs.value.length); };
   const ps = document.getElementById('pagoSearchInput');
   if(ps) ps.oninput = (e)=>{ ui.pagoSearch = e.target.value; render(); ps.focus(); ps.setSelectionRange(ps.value.length,ps.value.length); };
+
+  document.querySelectorAll('[data-caldate]').forEach(el=>{
+    el.onclick = ()=>{
+      const d = el.dataset.caldate;
+      ui.calSelectedDay = (ui.calSelectedDay===d) ? null : d;
+      render();
+    };
+  });
+  document.querySelectorAll('[data-navmonth]').forEach(el=>{
+    el.onclick = ()=>{
+      const delta = Number(el.dataset.navmonth);
+      let [y,m] = getCalMonth().split('-').map(Number);
+      m += delta;
+      if(m<1){ m=12; y--; } else if(m>12){ m=1; y++; }
+      ui.calMonth = `${y}-${String(m).padStart(2,'0')}`;
+      ui.calSelectedDay = null;
+      render();
+    };
+  });
+  const calToday = document.getElementById('calToday');
+  if(calToday) calToday.onclick = ()=>{
+    ui.calMonth = todayISO().slice(0,7);
+    ui.calSelectedDay = todayISO();
+    render();
+  };
+  const calClear = document.querySelector('[data-clearcal]');
+  if(calClear) calClear.onclick = ()=>{ ui.calSelectedDay = null; render(); };
 }
 
 /* ============ Navegación ============ */
@@ -887,7 +1079,7 @@ document.getElementById('fabBtn').onclick = ()=>{
 document.getElementById('settingsBtn').onclick = openSettings;
 
 /* ============ Formulario: Cliente ============ */
-function openClienteForm(existing){
+function openClienteForm(existing, onSaved){
   const c = existing || { id:null, nombre:'', telefono:'', notas:'' };
   openSheet(`
     <div class="sheet-handle"></div>
@@ -898,21 +1090,28 @@ function openClienteForm(existing){
     <button class="btn btn-primary" id="fSave">${existing?'Guardar cambios':'Agregar cliente'}</button>
     <button class="btn btn-ghost" id="fCancel">Cancelar</button>
   `, ()=>{
-    document.getElementById('fCancel').onclick = closeSheet;
+    document.getElementById('fCancel').onclick = ()=>{
+      closeSheet();
+      if(!existing && onSaved) setTimeout(()=> onSaved(null), 190);
+    };
     document.getElementById('fSave').onclick = ()=>{
       const nombre = document.getElementById('fNombre').value.trim();
       if(!nombre){ toast('Poné un nombre para el cliente.'); return; }
       const telefono = document.getElementById('fTelefono').value.trim();
       const notas = document.getElementById('fNotas').value.trim();
+      let clienteObj;
       if(existing){
         Object.assign(existing, { nombre, telefono, notas });
+        clienteObj = existing;
       } else {
-        state.clientes.push({ id:uid(), nombre, telefono, notas });
+        clienteObj = { id:uid(), nombre, telefono, notas };
+        state.clientes.push(clienteObj);
       }
       persist('clientes');
       closeSheet();
       toast(existing? 'Cliente actualizado' : 'Cliente agregado');
       render();
+      if(onSaved) setTimeout(()=> onSaved(clienteObj), 190);
     };
   });
 }
@@ -985,13 +1184,14 @@ function precioDefault(tipo, frecuencia){
   return (v!==undefined && v!==null && v!=='') ? v : '';
 }
 
-function openTurnoForm(existing, prefill){
-  const t = existing || {
+function openTurnoForm(existing, prefill, resumeDraft){
+  const t = existing || resumeDraft || {
     id:null, fecha: (prefill&&prefill.fecha)||todayISO(), hora:'09:00',
     tipo:'Bioyoga', frecuencia:'1x', modalidad:'individual', clienteIds:[], nombreGrupo:'', notas:'', estado:'pendiente',
-    precio: precioDefault('Bioyoga','1x')
+    precio: precioDefault('Bioyoga','1x'),
+    dias: [], repetirMes: false
   };
-  let precioTocado = !!existing;
+  let precioTocado = !!existing || !!resumeDraft;
   if(state.clientes.length===0){
     openSheet(`
       <div class="sheet-handle"></div>
@@ -1010,7 +1210,7 @@ function openTurnoForm(existing, prefill){
 
   function modoSection(){
     if(t.modalidad==='individual'){
-      const selectHTML = `<select id="fCliente">${clientesOpts.map(c=>`<option value="${c.id}" ${t.clienteIds[0]===c.id?'selected':''}>${c.nombre}</option>`).join('')}</select>`;
+      const selectHTML = `<select id="fCliente">${clientesOpts.map(c=>`<option value="${c.id}" ${t.clienteIds[0]===c.id?'selected':''}>${c.nombre}</option>`).join('')}<option value="__new__">+ Agregar cliente nuevo…</option></select>`;
       return `<div class="field"><label>Cliente</label>${selectHTML}</div>`;
     }
     const checklistHTML = `<div class="checklist">${clientesOpts.map(c=>`
@@ -1018,8 +1218,29 @@ function openTurnoForm(existing, prefill){
       `).join('')}</div>`;
     return `
       <div class="field"><label>Nombre del grupo (opcional)</label><input type="text" id="fNombreGrupo" value="${t.nombreGrupo||''}" placeholder="Ej: Grupo martes tarde"></div>
-      <div class="field"><label>Participantes</label>${checklistHTML}</div>
+      <div class="field"><label>Participantes</label>${checklistHTML}
+        <button type="button" class="btn-link-add" id="fAddClienteInline">+ Agregar cliente nuevo</button>
+      </div>
     `;
+  }
+
+  function maxDias(){ return t.frecuencia==='2x' ? 2 : 1; }
+
+  function diasSection(){
+    if(existing || t.tipo !== 'Bioyoga') return '';
+    return `
+      <div class="field"><label>¿Qué día${maxDias()>1?'s':''} de la semana? (elegí ${maxDias()})</label>
+        <div class="chipgroup">
+          ${DIAS_SEMANA.map(d=>`<button type="button" class="chip chip-neutral ${t.dias.includes(d.value)?'on':''}" data-dia="${d.value}">${d.label}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field">
+        <label class="checkrow" style="padding-left:0;">
+          <input type="checkbox" id="fRepetirMes" ${t.repetirMes?'checked':''}>
+          <span>Repetir estas clases todas las semanas hasta fin de mes</span>
+        </label>
+      </div>
+      <div class="hint" id="recurrPreview" style="margin-top:-6px;"></div>`;
   }
 
   function freqSection(){
@@ -1030,7 +1251,8 @@ function openTurnoForm(existing, prefill){
           <button type="button" class="chip chip-neutral ${t.frecuencia==='1x'?'on':''}" data-freq="1x">1 vez x semana</button>
           <button type="button" class="chip chip-neutral ${t.frecuencia==='2x'?'on':''}" data-freq="2x">2 veces x semana</button>
         </div>
-      </div>`;
+      </div>
+      <div id="diasWrap">${diasSection()}</div>`;
   }
 
   function bodyHTML(){
@@ -1049,7 +1271,7 @@ function openTurnoForm(existing, prefill){
         </div>
       </div>
       <div class="row2">
-        <div class="field"><label>Fecha</label><input type="date" id="fFecha" value="${t.fecha}"></div>
+        <div class="field"><label>${(!existing && t.tipo==='Bioyoga')?'Fecha de inicio':'Fecha'}</label><input type="date" id="fFecha" value="${t.fecha}"></div>
         <div class="field"><label>Hora</label><input type="time" id="fHora" value="${t.hora}"></div>
       </div>
       <div class="field"><label>Precio por persona</label><input type="number" inputmode="decimal" id="fPrecio" value="${t.precio!==undefined?t.precio:''}" placeholder="0"></div>
@@ -1066,22 +1288,110 @@ function openTurnoForm(existing, prefill){
     <button class="btn btn-primary" id="fSaveT">${existing?'Guardar cambios':'Agendar clase'}</button>
     <button class="btn btn-ghost" id="fCancelT">Cancelar</button>
   `, ()=>{
+    function updatePreview(){
+      const prev = document.getElementById('recurrPreview');
+      if(!prev) return;
+      const fechaInput = document.getElementById('fFecha');
+      const fechaBase = (fechaInput && fechaInput.value) || t.fecha || todayISO();
+      if(t.dias.length===0){ prev.textContent = ''; return; }
+      const fechas = generarFechasRecurrentes(fechaBase, t.dias, t.repetirMes);
+      if(fechas.length===0){ prev.textContent = ''; return; }
+      const listado = fechas.map(f=>fmtDateShort(f)).join(' · ');
+      prev.textContent = `Se ${fechas.length>1?'agendarán':'agendará'} ${fechas.length} clase${fechas.length>1?'s':''}: ${listado}`;
+    }
+    function wireDiaChips(){
+      document.querySelectorAll('[data-dia]').forEach(b=>{
+        b.onclick = ()=>{
+          const val = Number(b.dataset.dia);
+          const idx = t.dias.indexOf(val);
+          if(idx>-1){
+            t.dias.splice(idx,1);
+          } else {
+            if(t.dias.length >= maxDias()){
+              toast(`Para ${t.frecuencia==='2x'?'2 veces':'1 vez'} x semana elegí ${maxDias()} día${maxDias()>1?'s':''}.`);
+              return;
+            }
+            t.dias.push(val);
+          }
+          document.querySelectorAll('[data-dia]').forEach(x=> x.classList.toggle('on', t.dias.includes(Number(x.dataset.dia))));
+          updatePreview();
+        };
+      });
+      const chkRep = document.getElementById('fRepetirMes');
+      if(chkRep) chkRep.onchange = ()=>{ t.repetirMes = chkRep.checked; updatePreview(); };
+      const fFecha = document.getElementById('fFecha');
+      if(fFecha) fFecha.addEventListener('change', updatePreview);
+      updatePreview();
+    }
     function wireFreqChips(){
       document.querySelectorAll('[data-freq]').forEach(b=>{
         b.onclick = ()=>{
           t.frecuencia = b.dataset.freq;
           document.querySelectorAll('[data-freq]').forEach(x=>x.classList.toggle('on', x===b));
+          if(t.dias.length > maxDias()) t.dias = t.dias.slice(0, maxDias());
+          document.getElementById('diasWrap').innerHTML = diasSection();
+          wireDiaChips();
           if(!precioTocado){
             const fp = document.getElementById('fPrecio');
             if(fp) fp.value = precioDefault(t.tipo, t.frecuencia);
           }
         };
       });
+      wireDiaChips();
+    }
+    function captureDraft(){
+      const draft = {...t};
+      const fFecha = document.getElementById('fFecha'); if(fFecha) draft.fecha = fFecha.value;
+      const fHora = document.getElementById('fHora'); if(fHora) draft.hora = fHora.value;
+      const fPrecio = document.getElementById('fPrecio'); if(fPrecio) draft.precio = fPrecio.value;
+      const fNotasT = document.getElementById('fNotasT'); if(fNotasT) draft.notas = fNotasT.value;
+      if(t.modalidad==='individual'){
+        const sel = document.getElementById('fCliente');
+        draft.clienteIds = (sel && sel.value && sel.value!=='__new__') ? [sel.value] : [];
+      } else {
+        draft.clienteIds = Array.from(document.querySelectorAll('.grupalCk:checked')).map(c=>c.value);
+        const ng = document.getElementById('fNombreGrupo'); if(ng) draft.nombreGrupo = ng.value;
+      }
+      draft.dias = [...t.dias];
+      return draft;
+    }
+    function wireModo(){
+      const sel = document.getElementById('fCliente');
+      if(sel){
+        sel.onchange = ()=>{
+          if(sel.value === '__new__'){
+            const draft = captureDraft();
+            closeSheet();
+            setTimeout(()=>{
+              openClienteForm(null, (newClient)=>{
+                if(newClient) draft.clienteIds = [newClient.id];
+                closeSheet();
+                setTimeout(()=> openTurnoForm(null, null, draft), 190);
+              });
+            }, 190);
+          }
+        };
+      }
+      const addBtn = document.getElementById('fAddClienteInline');
+      if(addBtn){
+        addBtn.onclick = ()=>{
+          const draft = captureDraft();
+          closeSheet();
+          setTimeout(()=>{
+            openClienteForm(null, (newClient)=>{
+              if(newClient) draft.clienteIds = [...draft.clienteIds, newClient.id];
+              closeSheet();
+              setTimeout(()=> openTurnoForm(null, null, draft), 190);
+            });
+          }, 190);
+        };
+      }
     }
     function wireChips(){
       document.querySelectorAll('[data-tipo]').forEach(b=>{
         b.onclick = ()=>{
           t.tipo=b.dataset.tipo;
+          if(t.tipo!=='Bioyoga'){ t.dias = []; t.repetirMes = false; }
           document.querySelectorAll('[data-tipo]').forEach(x=>x.classList.toggle('on', x===b));
           document.getElementById('freqWrap').innerHTML = freqSection();
           wireFreqChips();
@@ -1097,10 +1407,12 @@ function openTurnoForm(existing, prefill){
           t.modalidad=b.dataset.mod;
           document.querySelectorAll('[data-mod]').forEach(x=>x.classList.toggle('on', x===b));
           document.getElementById('modoWrap').innerHTML = modoSection();
+          wireModo();
         };
       });
       const fp = document.getElementById('fPrecio');
       if(fp) fp.oninput = ()=>{ precioTocado = true; };
+      wireModo();
     }
     wireChips();
     document.getElementById('fCancelT').onclick = closeSheet;
@@ -1112,6 +1424,7 @@ function openTurnoForm(existing, prefill){
       let nombreGrupo = '';
       if(t.modalidad==='individual'){
         const sel = document.getElementById('fCliente');
+        if(!sel.value || sel.value==='__new__'){ toast('Elegí un cliente.'); return; }
         clienteIds = [sel.value];
       } else {
         clienteIds = Array.from(document.querySelectorAll('.grupalCk:checked')).map(c=>c.value);
@@ -1124,13 +1437,27 @@ function openTurnoForm(existing, prefill){
       const payload = { fecha, hora, tipo:t.tipo, frecuencia, modalidad:t.modalidad, clienteIds, nombreGrupo, precio, notas };
       if(existing){
         Object.assign(existing, payload);
+        persist('turnos');
+        closeSheet();
+        toast('Turno actualizado');
+        render();
+      } else if(!existing && t.tipo==='Bioyoga' && t.dias && t.dias.length>0){
+        const fechas = generarFechasRecurrentes(fecha, t.dias, t.repetirMes);
+        const serieId = uid();
+        fechas.forEach(f=>{
+          state.turnos.push({ id:uid(), estado:'pendiente', serieId, ...payload, fecha:f });
+        });
+        persist('turnos');
+        closeSheet();
+        toast(`Se agendaron ${fechas.length} clase${fechas.length>1?'s':''}`);
+        render();
       } else {
         state.turnos.push({ id:uid(), estado:'pendiente', ...payload });
+        persist('turnos');
+        closeSheet();
+        toast('Clase agendada');
+        render();
       }
-      persist('turnos');
-      closeSheet();
-      toast(existing?'Turno actualizado':'Clase agendada');
-      render();
     };
   });
 }
@@ -1344,4 +1671,5 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
+
 

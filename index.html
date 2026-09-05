@@ -167,13 +167,20 @@
   .cal-cell.blank{background:none; border:none;}
   .cal-cell.today{border-color:var(--moss); border-width:1.5px; color:var(--forest);}
   .cal-cell.selected{background:var(--forest); border-color:var(--forest); color:var(--paper);}
+  .cal-cell .cal-dots{display:flex; gap:3px; position:absolute; bottom:5px; left:50%; transform:translateX(-50%);}
   .cal-cell .cal-dot{width:5px; height:5px; border-radius:50%; background:var(--moss);}
-  .cal-cell.selected .cal-dot{background:var(--mustard);}
+  .cal-cell .cal-dot.dot-bioyoga{background:var(--moss);}
+  .cal-cell .cal-dot.dot-reflexo{background:var(--clay);}
+  .cal-cell.selected .cal-dot.dot-bioyoga{background:#C9B8E0;}
+  .cal-cell.selected .cal-dot.dot-reflexo{background:#F0A98A;}
   .cal-day-list-title{
     font-size:0.78rem; font-weight:700; color:var(--forest); text-transform:uppercase;
     letter-spacing:0.05em; margin:4px 2px 8px; display:flex; justify-content:space-between; align-items:center;
   }
   .cal-clear-btn{font-size:0.74rem; font-weight:700; color:var(--ink-soft); text-transform:none; letter-spacing:0;}
+  .cal-legend{display:flex; justify-content:center; gap:16px; margin-bottom:10px;}
+  .cal-legend-item{display:flex; align-items:center; gap:5px; font-size:0.72rem; font-weight:600; color:var(--ink-soft);}
+  .cal-legend-item .cal-dot{width:7px; height:7px;}
 
   /* ---------- Main ---------- */
   .main{
@@ -856,11 +863,17 @@ function renderAgendaCalendario(){
   for(let i=0;i<leadBlanks;i++) cells += `<div class="cal-cell blank"></div>`;
   for(let day=1; day<=daysInMonth; day++){
     const iso = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-    const hasTurno = !!turnosPorFecha[iso];
+    const turnosDia = turnosPorFecha[iso] || [];
     const isToday = iso===today;
     const isSel = iso===ui.calSelectedDay;
+    let dotsHTML = '';
+    if(turnosDia.length){
+      const hasBioyoga = turnosDia.some(t=>t.tipo==='Bioyoga');
+      const hasReflexo = turnosDia.some(t=>t.tipo!=='Bioyoga');
+      dotsHTML = `<span class="cal-dots">${hasBioyoga?'<span class="cal-dot dot-bioyoga"></span>':''}${hasReflexo?'<span class="cal-dot dot-reflexo"></span>':''}</span>`;
+    }
     cells += `<div class="cal-cell ${isToday?'today':''} ${isSel?'selected':''}" data-caldate="${iso}">
-      <span>${day}</span>${hasTurno?'<span class="cal-dot"></span>':''}
+      <span>${day}</span>${dotsHTML}
     </div>`;
   }
   const totalCells = leadBlanks + daysInMonth;
@@ -905,6 +918,10 @@ function renderAgendaCalendario(){
       <button class="cal-nav-btn" data-navmonth="1">${ICON.chevron}</button>
     </div>
     <div style="text-align:center; margin-bottom:12px;"><button class="cal-today-btn" id="calToday">Ir a hoy</button></div>
+    <div class="cal-legend">
+      <span class="cal-legend-item"><span class="cal-dot dot-bioyoga"></span>Bioyoga</span>
+      <span class="cal-legend-item"><span class="cal-dot dot-reflexo"></span>Reflexología</span>
+    </div>
     <div class="cal-weekdays">${DIAS_SEMANA.map(d=>`<div class="cal-weekday">${d.label}</div>`).join('')}</div>
     <div class="cal-grid">${cells}</div>
     ${listHTML}

@@ -199,6 +199,20 @@
   .stat-value{font-family:'IBM Plex Mono'; font-size:1.9rem; font-weight:600; margin-top:4px; color:var(--mustard);}
   .stat-foot{font-size:0.78rem; color:#D8CBDD; margin-top:2px;}
 
+  .stat-row{display:flex; gap:10px; margin-bottom:14px;}
+  .stat-mini{flex:1; background:var(--forest); color:var(--paper); border-radius:var(--radius-sm); padding:12px 14px; min-width:0;}
+  .stat-mini .stat-label{font-size:0.64rem;}
+  .stat-mini .stat-value{font-size:1.28rem; margin-top:3px;}
+  .stat-mini .stat-foot{font-size:0.7rem;}
+
+  .mes-row{cursor:pointer; justify-content:space-between;}
+  .mes-row.selected{border-color:var(--forest); border-width:1.5px; background:var(--moss-soft);}
+  .mes-nombre{font-weight:700; font-size:0.93rem; text-transform:capitalize;}
+  .mes-detalle{font-size:0.78rem; color:var(--ink-soft); margin-top:1px;}
+  .mes-stats{text-align:right; flex-shrink:0;}
+  .mes-cobrado{font-family:'IBM Plex Mono'; font-weight:700; font-size:0.98rem; color:var(--forest);}
+  .mes-realizadas{font-size:0.72rem; color:var(--ink-soft); margin-top:1px;}
+
   .search-input{
     width:100%;
     padding:11px 14px;
@@ -960,50 +974,77 @@ function renderClientes(){
 }
 
 /* ---------- PAGOS ---------- */
-const PAGO_FILTROS = [
-  { value:'mes', label:'Este mes' },
-  { value:'mesAnterior', label:'Mes anterior' },
-  { value:'anio', label:'Este año' },
-  { value:'todo', label:'Todo' }
-];
-function pagoFiltroRango(filtro){
+function mesKeyActual(){
   const now = new Date();
-  if(filtro==='mes'){
-    const y = now.getFullYear(), m = now.getMonth()+1;
-    return { desde:`${y}-${String(m).padStart(2,'0')}-01`, hasta:`${y}-${String(m).padStart(2,'0')}-31` };
-  }
-  if(filtro==='mesAnterior'){
-    let y = now.getFullYear(), m = now.getMonth(); // mes actual - 1, 1-indexado
-    if(m===0){ m=12; y--; }
-    return { desde:`${y}-${String(m).padStart(2,'0')}-01`, hasta:`${y}-${String(m).padStart(2,'0')}-31` };
-  }
-  if(filtro==='anio'){
-    return { desde:`${now.getFullYear()}-01-01`, hasta:`${now.getFullYear()}-12-31` };
-  }
-  return null; // 'todo'
+  return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+}
+function mesLabel(key){
+  const [y,m] = key.split('-').map(Number);
+  const d = new Date(y, m-1, 1);
+  const s = d.toLocaleDateString('es-AR', {month:'long', year:'numeric'});
+  return s.charAt(0).toUpperCase()+s.slice(1);
+}
+function pagoFiltroKey(filtro){
+  // resuelve el sentinel 'mes' a la clave YYYY-MM real; 'todo' y claves específicas quedan igual
+  return filtro==='mes' ? mesKeyActual() : filtro;
+}
+function pagoFiltroRango(filtro){
+  if(filtro==='todo') return null;
+  const key = pagoFiltroKey(filtro);
+  return { desde:`${key}-01`, hasta:`${key}-31` };
 }
 function pagoFiltroLabel(filtro){
-  return (PAGO_FILTROS.find(f=>f.value===filtro)||{}).label || 'Todo';
+  return filtro==='todo' ? 'todo' : mesLabel(pagoFiltroKey(filtro)).toLowerCase();
+}
+function resumenMensual(){
+  const meses = new Set();
+  state.pagos.forEach(p=> meses.add(p.fecha.slice(0,7)));
+  state.turnos.filter(t=>t.estado==='realizado').forEach(t=> meses.add(t.fecha.slice(0,7)));
+  meses.add(mesKeyActual());
+  const keys = [...meses].sort((a,b)=> b.localeCompare(a));
+  return keys.map(key=>{
+    const cobrado = state.pagos.filter(p=>p.fecha.slice(0,7)===key).reduce((s,p)=>s+Number(p.monto||0),0);
+    const realizadas = state.turnos.filter(t=>t.estado==='realizado' && t.fecha.slice(0,7)===key);
+    const generado = realizadas.reduce((s,t)=>s+Number(t.precio||0),0);
+    return { key, cobrado, cantidadRealizadas:realizadas.length, generado };
+  });
 }
 function renderPagos(){
+  const filtroKey = pagoFiltroKey(ui.pagoFiltro);
   const rango = pagoFiltroRango(ui.pagoFiltro);
   const pagosDelPeriodo = rango
     ? state.pagos.filter(p=> p.fecha>=rango.desde && p.fecha<=rango.hasta)
     : [...state.pagos];
   const totalPeriodo = pagosDelPeriodo.reduce((s,p)=>s+Number(p.monto||0),0);
+  const realizadasPeriodo = rango
+    ? state.turnos.filter(t=> t.estado==='realizado' && t.fecha>=rango.desde && t.fecha<=rango.hasta)
+    : state.turnos.filter(t=> t.estado==='realizado');
+  const generadoPeriodo = realizadasPeriodo.reduce((s,t)=>s+Number(t.precio||0),0);
 
   const pendientes = deudores();
   const totalDeuda = pendientes.reduce((s,d)=> s + d.saldo, 0);
 
   let html = `<div class="chipgroup" style="margin-bottom:12px;">
-    ${PAGO_FILTROS.map(f=>`<button type="button" class="chip chip-neutral ${ui.pagoFiltro===f.value?'on':''}" data-pagofiltro="${f.value}">${f.label}</button>`).join('')}
+    <button type="button" class="chip chip-neutral ${ui.pagoFiltro==='mes'?'on':''}" data-pagofiltro="mes">Este mes</button>
+    <button type="button" class="chip chip-neutral ${ui.pagoFiltro==='todo'?'on':''}" data-pagofiltro="todo">Todo</button>
   </div>`;
 
   html += `
     <div class="stat-card">
-      <div class="stat-label">Cobrado · ${pagoFiltroLabel(ui.pagoFiltro).toLowerCase()}</div>
+      <div class="stat-label">Cobrado · ${pagoFiltroLabel(ui.pagoFiltro)}</div>
       <div class="stat-value">${money(totalPeriodo)}</div>
       <div class="stat-foot">${pagosDelPeriodo.length} pago(s) registrados</div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-mini">
+        <div class="stat-label">Clases realizadas</div>
+        <div class="stat-value">${realizadasPeriodo.length}</div>
+      </div>
+      <div class="stat-mini">
+        <div class="stat-label">Trabajo generado</div>
+        <div class="stat-value" style="font-size:1.1rem;">${money(generadoPeriodo)}</div>
+        <div class="stat-foot">Valor de lo dictado</div>
+      </div>
     </div>
   `;
   if(totalDeuda>0){
@@ -1030,11 +1071,30 @@ function renderPagos(){
     });
   }
 
+  const meses = resumenMensual();
+  if(meses.length>0){
+    html += `<div class="section-title" style="margin-top:18px;">Mes a mes</div>`;
+    meses.forEach(m=>{
+      const selected = filtroKey===m.key;
+      html += `
+      <div class="card mes-row ${selected?'selected':''}" data-pagofiltro="${m.key}">
+        <div style="flex:1; min-width:0;">
+          <div class="mes-nombre">${mesLabel(m.key)}</div>
+          <div class="mes-detalle">${m.cantidadRealizadas} clase${m.cantidadRealizadas!==1?'s':''} realizada${m.cantidadRealizadas!==1?'s':''} · generó ${money(m.generado)}</div>
+        </div>
+        <div class="mes-stats">
+          <div class="mes-cobrado">${money(m.cobrado)}</div>
+          <div class="mes-realizadas">cobrado</div>
+        </div>
+      </div>`;
+    });
+  }
+
   if(state.pagos.length===0){
     return html + emptyState(ICON.cash, 'Todavía no registraste pagos', 'Tocá + para anotar el primer cobro.');
   }
 
-  html += `<div class="section-title" style="margin-top:18px;">Historial · ${pagoFiltroLabel(ui.pagoFiltro).toLowerCase()}</div>`;
+  html += `<div class="section-title" style="margin-top:18px;">Historial · ${pagoFiltroLabel(ui.pagoFiltro)}</div>`;
   html += `<input class="search-input" id="pagoSearchInput" placeholder="Buscar por cliente…" value="${ui.pagoSearch}">`;
 
   let list = [...pagosDelPeriodo].sort((a,b)=> b.fecha.localeCompare(a.fecha));

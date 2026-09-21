@@ -583,7 +583,7 @@ let state = {
   turnos: [],
   pagos: []
 };
-let ui = { tab:'agenda', agendaFilter:'proximas', clienteSearch:'', pagoSearch:'', calMonth:'', calSelectedDay:null };
+let ui = { tab:'agenda', agendaFilter:'proximas', clienteSearch:'', pagoSearch:'', calMonth:'', calSelectedDay:null, pagoFiltro:'mes' };
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const todayISO = () => {
@@ -960,26 +960,56 @@ function renderClientes(){
 }
 
 /* ---------- PAGOS ---------- */
-function renderPagos(){
+const PAGO_FILTROS = [
+  { value:'mes', label:'Este mes' },
+  { value:'mesAnterior', label:'Mes anterior' },
+  { value:'anio', label:'Este año' },
+  { value:'todo', label:'Todo' }
+];
+function pagoFiltroRango(filtro){
   const now = new Date();
-  const mm = String(now.getMonth()+1).padStart(2,'0');
-  const monthKey = `${now.getFullYear()}-${mm}`;
-  const totalMes = state.pagos.filter(p=>p.fecha.startsWith(monthKey)).reduce((s,p)=>s+Number(p.monto||0),0);
+  if(filtro==='mes'){
+    const y = now.getFullYear(), m = now.getMonth()+1;
+    return { desde:`${y}-${String(m).padStart(2,'0')}-01`, hasta:`${y}-${String(m).padStart(2,'0')}-31` };
+  }
+  if(filtro==='mesAnterior'){
+    let y = now.getFullYear(), m = now.getMonth(); // mes actual - 1, 1-indexado
+    if(m===0){ m=12; y--; }
+    return { desde:`${y}-${String(m).padStart(2,'0')}-01`, hasta:`${y}-${String(m).padStart(2,'0')}-31` };
+  }
+  if(filtro==='anio'){
+    return { desde:`${now.getFullYear()}-01-01`, hasta:`${now.getFullYear()}-12-31` };
+  }
+  return null; // 'todo'
+}
+function pagoFiltroLabel(filtro){
+  return (PAGO_FILTROS.find(f=>f.value===filtro)||{}).label || 'Todo';
+}
+function renderPagos(){
+  const rango = pagoFiltroRango(ui.pagoFiltro);
+  const pagosDelPeriodo = rango
+    ? state.pagos.filter(p=> p.fecha>=rango.desde && p.fecha<=rango.hasta)
+    : [...state.pagos];
+  const totalPeriodo = pagosDelPeriodo.reduce((s,p)=>s+Number(p.monto||0),0);
 
   const pendientes = deudores();
   const totalDeuda = pendientes.reduce((s,d)=> s + d.saldo, 0);
 
-  let html = `
+  let html = `<div class="chipgroup" style="margin-bottom:12px;">
+    ${PAGO_FILTROS.map(f=>`<button type="button" class="chip chip-neutral ${ui.pagoFiltro===f.value?'on':''}" data-pagofiltro="${f.value}">${f.label}</button>`).join('')}
+  </div>`;
+
+  html += `
     <div class="stat-card">
-      <div class="stat-label">Cobrado este mes</div>
-      <div class="stat-value">${money(totalMes)}</div>
-      <div class="stat-foot">${state.pagos.filter(p=>p.fecha.startsWith(monthKey)).length} pago(s) registrados</div>
+      <div class="stat-label">Cobrado · ${pagoFiltroLabel(ui.pagoFiltro).toLowerCase()}</div>
+      <div class="stat-value">${money(totalPeriodo)}</div>
+      <div class="stat-foot">${pagosDelPeriodo.length} pago(s) registrados</div>
     </div>
   `;
   if(totalDeuda>0){
     html += `
     <div class="stat-card" style="background:var(--clay);">
-      <div class="stat-label">Total adeudado</div>
+      <div class="stat-label">Por cobrar (a hoy)</div>
       <div class="stat-value" style="color:#F3E8D2;">${money(totalDeuda)}</div>
       <div class="stat-foot">${pendientes.length} cliente${pendientes.length!==1?'s':''} con saldo pendiente</div>
     </div>
@@ -1004,15 +1034,15 @@ function renderPagos(){
     return html + emptyState(ICON.cash, 'Todavía no registraste pagos', 'Tocá + para anotar el primer cobro.');
   }
 
-  html += `<div class="section-title" style="margin-top:18px;">Historial</div>`;
+  html += `<div class="section-title" style="margin-top:18px;">Historial · ${pagoFiltroLabel(ui.pagoFiltro).toLowerCase()}</div>`;
   html += `<input class="search-input" id="pagoSearchInput" placeholder="Buscar por cliente…" value="${ui.pagoSearch}">`;
 
-  let list = [...state.pagos].sort((a,b)=> b.fecha.localeCompare(a.fecha));
+  let list = [...pagosDelPeriodo].sort((a,b)=> b.fecha.localeCompare(a.fecha));
   if(ui.pagoSearch.trim()){
     list = list.filter(p => clienteNombre(p.clienteId).toLowerCase().includes(ui.pagoSearch.toLowerCase()));
   }
   if(list.length===0){
-    html += `<p style="text-align:center; color:var(--ink-soft); font-size:0.9rem; margin-top:20px;">Sin resultados.</p>`;
+    html += `<p style="text-align:center; color:var(--ink-soft); font-size:0.9rem; margin-top:20px;">Sin resultados en este período.</p>`;
     return html;
   }
   list.forEach(p=>{
@@ -1048,6 +1078,9 @@ function attachListListeners(){
   if(cs) cs.oninput = (e)=>{ ui.clienteSearch = e.target.value; render(); cs.focus(); cs.setSelectionRange(cs.value.length,cs.value.length); };
   const ps = document.getElementById('pagoSearchInput');
   if(ps) ps.oninput = (e)=>{ ui.pagoSearch = e.target.value; render(); ps.focus(); ps.setSelectionRange(ps.value.length,ps.value.length); };
+  document.querySelectorAll('[data-pagofiltro]').forEach(el=>{
+    el.onclick = ()=>{ ui.pagoFiltro = el.dataset.pagofiltro; render(); };
+  });
 
   document.querySelectorAll('[data-caldate]').forEach(el=>{
     el.onclick = ()=>{
@@ -1453,11 +1486,50 @@ function openTurnoForm(existing, prefill, resumeDraft){
       const frecuencia = t.tipo==='Bioyoga' ? t.frecuencia : null;
       const payload = { fecha, hora, tipo:t.tipo, frecuencia, modalidad:t.modalidad, clienteIds, nombreGrupo, precio, notas };
       if(existing){
-        Object.assign(existing, payload);
-        persist('turnos');
-        closeSheet();
-        toast('Turno actualizado');
-        render();
+        const otrasDeLaSerie = existing.serieId ? state.turnos.filter(x=> x.serieId===existing.serieId && x.id!==existing.id) : [];
+        if(otrasDeLaSerie.length>0){
+          const fechaOriginal = existing.fecha;
+          const serieIdOriginal = existing.serieId;
+          closeSheet();
+          setTimeout(()=>{
+            openSheet(`
+              <div class="sheet-handle"></div>
+              <div class="sheet-title">¿A qué clases aplicar los cambios?</div>
+              <p style="color:var(--ink-soft); font-size:0.92rem; margin-top:-8px;">Esta clase forma parte de una serie semanal.</p>
+              <button class="btn btn-primary" id="scopeSola">Solo esta clase</button>
+              <button class="btn btn-primary" id="scopeSerie">Esta y las siguientes</button>
+              <button class="btn btn-ghost" id="scopeCancelar">Cancelar</button>
+            `, ()=>{
+              document.getElementById('scopeCancelar').onclick = closeSheet;
+              document.getElementById('scopeSola').onclick = ()=>{
+                Object.assign(existing, payload);
+                persist('turnos');
+                closeSheet();
+                toast('Turno actualizado');
+                render();
+              };
+              document.getElementById('scopeSerie').onclick = ()=>{
+                Object.assign(existing, payload);
+                const { fecha:_fecha, ...camposComunes } = payload;
+                state.turnos.forEach(x=>{
+                  if(x.serieId===serieIdOriginal && x.id!==existing.id && x.fecha>=fechaOriginal){
+                    Object.assign(x, camposComunes);
+                  }
+                });
+                persist('turnos');
+                closeSheet();
+                toast('Se actualizaron esta clase y las siguientes');
+                render();
+              };
+            });
+          }, 190);
+        } else {
+          Object.assign(existing, payload);
+          persist('turnos');
+          closeSheet();
+          toast('Turno actualizado');
+          render();
+        }
       } else if(!existing && t.tipo==='Bioyoga' && t.dias && t.dias.length>0){
         const fechas = generarFechasRecurrentes(fecha, t.dias, t.repetirMes);
         const serieId = uid();

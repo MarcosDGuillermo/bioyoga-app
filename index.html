@@ -267,6 +267,7 @@
   .status-pendiente{background:var(--mustard-soft); color:#8A6417;}
   .status-realizado{background:var(--moss-soft); color:var(--forest);}
   .status-cancelado{background:#EEE; color:#8A8A8A;}
+  .status-ausente{background:#E8E1ED; color:var(--lavender-deep);}
 
   .cliente-row{justify-content:space-between;}
   .cliente-name{font-weight:700; font-size:0.97rem;}
@@ -789,7 +790,7 @@ function turnoLabel(t){
   return clienteNombre(t.clienteIds[0]);
 }
 function estadoLabel(e){
-  return e==='realizado' ? 'Realizado' : e==='cancelado' ? 'Cancelado' : 'Pendiente';
+  return e==='realizado' ? 'Realizado' : e==='cancelado' ? 'Cancelado' : e==='ausente' ? 'No vino' : 'Pendiente';
 }
 
 /* ---------- Cuentas: devengado, pagado, saldo ---------- */
@@ -811,6 +812,15 @@ function deudores(){
     .map(c => ({ cliente:c, saldo: saldoCliente(c.id) }))
     .filter(x => x.saldo > 0)
     .sort((a,b)=> b.saldo - a.saldo);
+}
+function marcarNoVino(t, onDone){
+  openConfirm('¿Marcar que no vino?', 'La clase va a quedar registrada como ausencia y no va a sumar a la cuenta corriente del cliente.', 'Confirmar', false, ()=>{
+    t.estado='ausente';
+    persist('turnos');
+    render();
+    toast('Clase marcada como ausencia');
+    if(onDone) onDone();
+  });
 }
 
 function renderAgenda(){
@@ -1131,7 +1141,7 @@ function attachListListeners(){
       if(type==='turno') openTurnoDetail(state.turnos.find(t=>t.id===id));
       if(type==='cliente') openClienteDetail(state.clientes.find(c=>c.id===id));
       if(type==='pago') openPagoDetail(state.pagos.find(p=>p.id===id));
-      if(type==='deudor') openPagoForm(null, { clienteId:id, montoSugerido:saldoCliente(id) });
+      if(type==='deudor') openDeudorDetalle(id);
     };
   });
   const cs = document.getElementById('clienteSearchInput');
@@ -1636,6 +1646,8 @@ function openTurnoDetail(t){
       <button class="btn btn-danger" id="tCancelar">Cancelar clase</button>
       <button class="btn btn-primary" id="tRealizado">${ICON.check} Marcar realizado</button>
     </div>` : ''}
+    ${t.estado==='realizado' ? `
+    <button class="btn" style="background:#E8E1ED; color:var(--lavender-deep);" id="tNoVino">No vino a esta clase</button>` : ''}
     <button class="btn" style="background:var(--mustard-soft); color:#8A6417;" id="tPago">${ICON.cash} Registrar pago</button>
     <div class="btn-row">
       <button class="btn btn-danger" id="tDelete">${ICON.trash} Eliminar</button>
@@ -1667,6 +1679,59 @@ function openTurnoDetail(t){
     if(okBtn) okBtn.onclick = ()=>{
       t.estado='realizado'; persist('turnos'); closeSheet(); render(); toast('Clase marcada como realizada');
     };
+    const noVinoBtn = document.getElementById('tNoVino');
+    if(noVinoBtn) noVinoBtn.onclick = ()=>{
+      closeSheet();
+      setTimeout(()=> marcarNoVino(t), 190);
+    };
+  });
+}
+
+/* ============ Detalle de deudor (desde Pagos) ============ */
+function openDeudorDetalle(clienteId){
+  const cliente = state.clientes.find(c=>c.id===clienteId);
+  if(!cliente) return;
+  const turnosRealizados = state.turnos
+    .filter(t=> t.estado==='realizado' && t.clienteIds.includes(clienteId))
+    .sort((a,b)=> b.fecha.localeCompare(a.fecha));
+  const saldo = saldoCliente(clienteId);
+
+  const rowsHTML = turnosRealizados.length ? turnosRealizados.map(t=>`
+    <div class="card">
+      <div style="flex:1; min-width:0;">
+        <div class="pago-cliente">${fmtDateShort(t.fecha)} · ${t.tipo}</div>
+        <div class="pago-meta">${money(t.precio||0)}</div>
+      </div>
+      <button type="button" class="btn-link-add" style="width:auto; margin:0; padding:7px 11px; font-size:0.76rem; flex-shrink:0;" data-marcarausente="${t.id}">No vino</button>
+    </div>
+  `).join('') : `<p style="color:var(--ink-soft); font-size:0.88rem;">No hay clases realizadas registradas.</p>`;
+
+  openSheet(`
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">${cliente.nombre}</div>
+    <div class="stat-card" style="background:var(--clay); margin-bottom:14px;">
+      <div class="stat-label">Saldo pendiente</div>
+      <div class="stat-value" style="color:#F3E8D2;">${money(saldo)}</div>
+    </div>
+    <div class="section-title" style="font-size:1.05rem;">Clases realizadas</div>
+    <div class="hint" style="margin-top:-8px; margin-bottom:10px;">Si alguna clase no se dio, tocá "No vino" para sacarla de la cuenta corriente.</div>
+    ${rowsHTML}
+    <button class="btn btn-primary" id="ddPago" style="margin-top:14px;">${ICON.cash} Registrar pago</button>
+    <button class="btn btn-ghost" id="ddClose">Cerrar</button>
+  `, ()=>{
+    document.getElementById('ddClose').onclick = closeSheet;
+    document.getElementById('ddPago').onclick = ()=>{
+      closeSheet();
+      setTimeout(()=> openPagoForm(null, { clienteId, montoSugerido:saldoCliente(clienteId) }), 190);
+    };
+    document.querySelectorAll('[data-marcarausente]').forEach(btn=>{
+      btn.onclick = ()=>{
+        const turno = state.turnos.find(x=>x.id===btn.dataset.marcarausente);
+        if(!turno) return;
+        closeSheet();
+        setTimeout(()=> marcarNoVino(turno, ()=>{ setTimeout(()=> openDeudorDetalle(clienteId), 190); }), 190);
+      };
+    });
   });
 }
 
